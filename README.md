@@ -1,4 +1,4 @@
-# spetottets
+# spetotextos
 
 This is a small program for testing speech to text and text to speech.
 
