@@ -1,0 +1,2 @@
+"""Simple Chat application package."""
+

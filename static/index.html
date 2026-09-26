@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chabela App (Chat Bella App) ☯️</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>html, body { height: 100%; margin: 0; }</style>
+</head>
+<body class="bg-light">
+  <main class="container-fluid d-flex flex-column h-100">
+    <header class="bg-dark text-white p-3 text-center">Chabela App (Chat Bella App) ⛱️</header>
+    <div id="output" class="flex-grow-1 overflow-auto p-3" style="min-height:0"></div>
+    <section class="p-2 border-top bg-white">
+      <div class="input-group mb-2">
+        <textarea id="inputText" class="form-control" rows="2" maxlength="10000" placeholder="Type your message here..."></textarea>
+        <button id="sendTextBtn" class="btn btn-primary">📩 Send Text (LLM)</button>
+      </div>
+      <div class="input-group mb-2">
+        <label class="input-group-text" for="textProvider">Text provider</label>
+        <select id="textProvider" class="form-select">
+          <option value="azure" selected>Azure (cloud)</option>
+          <option value="ollama">Ollama (local)</option>
+        </select>
+        <input id="ollamaModel" class="form-control" value="llama3.2:latest" aria-label="Ollama model" title="Ollama model" hidden>
+        <button id="ollamaCheckBtn" class="btn btn-outline-secondary">Check Ollama</button>
+      </div>
+      <div id="ollamaStatus" class="small mb-2" role="status"></div>
+      <div class="input-group mb-2">
+        <textarea id="inputText4RAG" class="form-control" rows="2" maxlength="10000" placeholder="Type your RAG question here..."></textarea>
+        <button id="sendRagBtn" class="btn btn-primary">🗄️ Send Text (RAG)</button>
+      </div>
+      <div class="input-group mb-2">
+        <input type="file" id="fileInput" class="form-control" accept="application/pdf">
+        <button id="uploadBtn" class="btn btn-primary">Upload PDF</button>
+      </div>
+      <div class="input-group mb-2">
+        <input type="file" id="imageInput" class="form-control" accept="image/*">
+        <select id="imageAnalysisMode" class="form-select" aria-label="Image analysis mode">
+          <option value="ai" selected>AI model</option>
+          <option value="tesseract">Tesseract local OCR</option>
+        </select>
+        <button id="imageBtn" class="btn btn-primary">📷 Upload Image</button>
+      </div>
+      <div class="d-flex gap-2 mt-2">
+        <button id="recordBtn" class="btn btn-outline-primary">🎤 Record Audio</button>
+        <button id="readBtn" class="btn btn-outline-secondary">🔊 Read Last AI Message</button>
+        <button id="clearBtn" class="btn btn-outline-danger">Clear Local Chat</button>
+      </div>
+    </section>
+  </main>
+  <script>
+    const STORAGE_KEY = "chabela.conversations.v1";
+    const sessions = { text: "user1", rag: "rag_user1" };
+    const output = document.getElementById("output");
+    let state = loadState();
+    let lastAIMessage = "";
+    let mediaRecorder;
+    let audioChunks = [];
+
+    function loadState() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+        return { text: Array.isArray(saved.text) ? saved.text : [], rag: Array.isArray(saved.rag) ? saved.rag : [], provider: saved.provider === "ollama" ? "ollama" : "azure" };
+      } catch (_) { return { text: [], rag: [] }; }
+    }
+
+    function saveState() { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+
+    function updateProviderControls() {
+      const provider = document.getElementById("textProvider").value;
+      document.getElementById("ollamaModel").hidden = provider !== "ollama";
+      state.provider = provider; saveState();
+    }
+
+    function renderMessage(sender, message) {
+      const row = document.createElement("div");
+      const label = document.createElement("b");
+      label.textContent = `${sender}: `;
+      row.append(label, document.createTextNode(message), document.createElement("br"), document.createElement("br"));
+      output.appendChild(row);
+    }
+
+    function renderAll() {
+      output.replaceChildren();
+      [...state.text, ...state.rag].forEach(message => renderMessage(message.role === "user" ? "You" : "AI", message.content));
+      output.scrollTop = output.scrollHeight;
+    }
+
+    function addMessage(kind, role, content) { state[kind].push({ role, content }); saveState(); renderAll(); }
+
+    async function apiFetch(url, options = {}) {
+      const response = await fetch(url, options);
+      let data = {};
+      try { data = await response.json(); } catch (_) {}
+      if (!response.ok) throw new Error(data.detail || data.message || `Request failed (${response.status})`);
+      return data;
+    }
+
+    async function getOllamaHealth() {
+      // A file:// page cannot resolve relative URLs such as /health/ollama.
+      // Query Ollama directly in that case. When served by FastAPI, use the
+      // authenticated backend health endpoint instead.
+      if (window.location.protocol === "file:") {
+        const ollamaUrl = "http://localhost:11434";
+        const response = await fetch(`${ollamaUrl}/api/tags`, { method: "GET", mode: "cors" });
+        let data = {};
+        try { data = await response.json(); } catch (_) {}
+        if (!response.ok) throw new Error(`Ollama returned HTTP ${response.status}`);
+        const names = Array.isArray(data.models) ? data.models.map(item => item.name).filter(Boolean) : [];
+        const model = document.getElementById("ollamaModel").value.trim() || "llama3.2:latest";
+        const available = names.includes(model) || names.includes(model.replace(/:latest$/, ""));
+        return { connected: true, host: ollamaUrl, model, model_available: available, available_models: names, error: available ? null : `Model ${model} is not installed` };
+      }
+      return apiFetch("/health/ollama");
+    }
+
+    async function completeChat(kind) {
+      try {
+        const payload = { messages: state[kind], provider: kind === "text" ? state.provider : "azure" };
+        if (payload.provider === "ollama") payload.model = document.getElementById("ollamaModel").value.trim() || "llama3.2:latest";
+        const data = await apiFetch(`/chat/${sessions[kind]}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        addMessage(kind, "assistant", data.reply); lastAIMessage = data.reply;
+      } catch (error) { renderMessage("System", `⚠️ ${error.message}`); }
+    }
+
+    async function sendChat(kind) {
+      const input = document.getElementById(kind === "rag" ? "inputText4RAG" : "inputText");
+      const message = input.value.trim();
+      if (!message) return;
+      addMessage(kind, "user", message); input.value = "";
+      await completeChat(kind);
+    }
+
+    document.getElementById("sendTextBtn").onclick = () => sendChat("text");
+    document.getElementById("sendRagBtn").onclick = () => sendChat("rag");
+    document.getElementById("textProvider").value = state.provider;
+    document.getElementById("textProvider").onchange = updateProviderControls;
+    document.getElementById("ollamaModel").onchange = saveState;
+    updateProviderControls();
+    document.getElementById("ollamaCheckBtn").onclick = async () => {
+      const status = document.getElementById("ollamaStatus"); status.textContent = "Checking Ollama...";
+      try {
+        const data = await getOllamaHealth();
+        status.textContent = data.connected && data.model_available ? `✅ Ollama connected: ${data.model}` : `⚠️ ${data.error || "Ollama model unavailable"}`;
+        status.className = `small mb-2 ${data.connected && data.model_available ? "text-success" : "text-warning"}`;
+      } catch (error) {
+        const message = window.location.protocol === "file:" && error instanceof TypeError
+          ? "Could not reach http://localhost:11434. Start Ollama with 'ollama serve' and allow localhost requests."
+          : error.message;
+        status.textContent = `❌ ${message}`; status.className = "small mb-2 text-danger";
+      }
+    };
+    ["inputText", "inputText4RAG"].forEach((id, index) => document.getElementById(id).addEventListener("keydown", event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendChat(index ? "rag" : "text"); } }));
+
+    document.getElementById("uploadBtn").onclick = async () => {
+      const file = document.getElementById("fileInput").files[0]; if (!file) return alert("Please select a PDF first.");
+      const form = new FormData(); form.append("file", file);
+      try { const data = await apiFetch("/rag/upload", { method: "POST", body: form }); alert(data.message); } catch (error) { alert(error.message); }
+    };
+
+    document.getElementById("imageBtn").onclick = async () => {
+      const file = document.getElementById("imageInput").files[0]; if (!file) return alert("Please select an image first.");
+      const mode = document.getElementById("imageAnalysisMode").value;
+      const form = new FormData(); form.append("file", file); form.append("mode", mode); addMessage("text", "user", `[Image uploaded: ${file.name} using ${mode}]`);
+      try { const data = await apiFetch(`/image-to-text/${sessions.text}`, { method: "POST", body: form }); addMessage("text", "assistant", data.reply || "[No text detected]"); lastAIMessage = data.reply || ""; } catch (error) { renderMessage("System", `⚠️ ${error.message}`); }
+    };
+
+    document.getElementById("recordBtn").onclick = async event => {
+      const button = event.currentTarget;
+      if (!mediaRecorder || mediaRecorder.state === "inactive") {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); mediaRecorder = new MediaRecorder(stream); audioChunks = [];
+          mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+          mediaRecorder.onstop = async () => {
+            stream.getTracks().forEach(track => track.stop()); const form = new FormData(); form.append("file", new Blob(audioChunks, { type: "audio/webm" }), "recording.webm");
+            try { const data = await apiFetch(`/speech-to-text/${sessions.text}`, { method: "POST", body: form }); addMessage("text", "user", data.transcription); await completeChat("text"); } catch (error) { renderMessage("System", `⚠️ ${error.message}`); }
+          };
+          mediaRecorder.start(); button.textContent = "⏹ Stop Recording";
+        } catch (error) { renderMessage("System", `⚠️ ${error.message}`); }
+      } else { mediaRecorder.stop(); button.textContent = "🎤 Record Audio"; }
+    };
+
+    let speaking = false;
+    document.getElementById("readBtn").onclick = event => {
+      if (speaking) { speechSynthesis.cancel(); speaking = false; event.currentTarget.textContent = "🔊 Read Last AI Message"; return; }
+      if (!lastAIMessage) return renderMessage("System", "⚠️ No AI message to read.");
+      const utterance = new SpeechSynthesisUtterance(lastAIMessage); utterance.lang = "de-DE"; utterance.rate = 2; utterance.pitch = 2;
+      utterance.onend = () => { speaking = false; event.currentTarget.textContent = "🔊 Read Last AI Message"; }; speechSynthesis.speak(utterance); speaking = true; event.currentTarget.textContent = "⏹ Stop Reading";
+    };
+
+    document.getElementById("clearBtn").onclick = () => { state = { text: [], rag: [], provider: state.provider }; saveState(); renderAll(); };
+    renderAll();
+  </script>
+</body>
+</html>
