@@ -141,7 +141,7 @@ async def image_to_text(
                 f"Details: {exc}",
             ) from exc
         raise HTTPException(502, "Unable to describe the image") from exc
-    return {"reply": _completion_text(response), "mode": "ai"}
+    return {"reply": _completion_text(response),}
 
 
 @router.post("/speech-to-text/{session_id}")

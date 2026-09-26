@@ -192,5 +192,25 @@
     document.getElementById("clearBtn").onclick = () => { state = { text: [], rag: [], provider: state.provider }; saveState(); renderAll(); };
     renderAll();
   </script>
+<script>
+  // Ollama is the safe offline default; Azure remains selectable explicitly.
+  document.addEventListener("DOMContentLoaded", () => {
+    const provider = document.getElementById("textProvider") ||
+      Array.from(document.querySelectorAll("select")).find((select) =>
+        Array.from(select.options).some(
+          (option) => option.value === "ollama" || option.value === "local"
+        )
+      );
+    if (!provider) return;
+
+    const ollamaOption = Array.from(provider.options).find(
+      (option) => option.value === "ollama" || option.value === "local"
+    );
+    if (ollamaOption) {
+      provider.value = ollamaOption.value;
+      provider.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+</script>
 </body>
 </html>
