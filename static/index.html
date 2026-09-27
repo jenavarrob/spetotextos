@@ -37,10 +37,14 @@
       <div class="input-group mb-2">
         <input type="file" id="imageInput" class="form-control" accept="image/*">
         <select id="imageAnalysisMode" class="form-select" aria-label="Image analysis mode">
-          <option value="ai" selected>AI model</option>
-          <option value="tesseract">Tesseract local OCR</option>
+          <option value="ai">AI model</option>
+          <option value="tesseract" selected>Tesseract (local helper)</option>
         </select>
         <button id="imageBtn" class="btn btn-primary">📷 Upload Image</button>
+      </div>
+      <div class="d-flex gap-2 align-items-center mb-2">
+        <button id="tesseractCheckBtn" class="btn btn-outline-secondary btn-sm">Check local OCR</button>
+        <div id="tesseractStatus" class="small" role="status"></div>
       </div>
       <div class="d-flex gap-2 mt-2">
         <button id="recordBtn" class="btn btn-outline-primary">🎤 Record Audio</button>
@@ -115,6 +119,10 @@
       return apiFetch("/health/ollama");
     }
 
+    async function getTesseractHealth() {
+      return apiFetch("/health/tesseract");
+    }
+
     async function completeChat(kind) {
       try {
         const payload = { messages: state[kind], provider: kind === "text" ? state.provider : "azure" };
@@ -149,6 +157,20 @@
           ? "Could not reach http://localhost:11434. Start Ollama with 'ollama serve' and allow localhost requests."
           : error.message;
         status.textContent = `❌ ${message}`; status.className = "small mb-2 text-danger";
+      }
+    };
+    document.getElementById("tesseractCheckBtn").onclick = async () => {
+      const status = document.getElementById("tesseractStatus");
+      status.textContent = "Checking local OCR...";
+      try {
+        const data = await getTesseractHealth();
+        status.textContent = data.connected
+          ? `✅ Tesseract ${data.version} (${data.language})`
+          : `⚠️ ${data.error || "Tesseract is unavailable"}`;
+        status.className = `small ${data.connected ? "text-success" : "text-warning"}`;
+      } catch (error) {
+        status.textContent = `❌ ${error.message}`;
+        status.className = "small text-danger";
       }
     };
     ["inputText", "inputText4RAG"].forEach((id, index) => document.getElementById(id).addEventListener("keydown", event => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendChat(index ? "rag" : "text"); } }));

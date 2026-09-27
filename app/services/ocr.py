@@ -15,6 +15,34 @@ class TesseractService:
         self.command = command
         self.language = language
 
+    def _configure(self) -> None:
+        if self.command:
+            pytesseract.pytesseract.tesseract_cmd = self.command
+
+    def check_connection(self) -> dict[str, object]:
+        """Return a non-throwing health result for the local OCR executable."""
+        result = {
+            "connected": False,
+            "command": self.command or "PATH",
+            "language": self.language,
+            "version": None,
+            "error": None,
+        }
+        if Image is None or pytesseract is None:
+            result["error"] = (
+                "Local OCR dependencies are missing. Install them with "
+                "'python -m pip install Pillow pytesseract'."
+            )
+            return result
+
+        try:
+            self._configure()
+            result["version"] = str(pytesseract.get_tesseract_version()).strip()
+            result["connected"] = True
+        except Exception as exc:
+            result["error"] = str(exc)
+        return result
+
     def extract_text(self, contents: bytes) -> str:
         if Image is None or pytesseract is None:
             raise RuntimeError(
@@ -22,8 +50,7 @@ class TesseractService:
                 "'python -m pip install Pillow pytesseract'."
             )
 
-        if self.command:
-            pytesseract.pytesseract.tesseract_cmd = self.command
+        self._configure()
 
         with Image.open(BytesIO(contents)) as image:
             text = pytesseract.image_to_string(image, lang=self.language)

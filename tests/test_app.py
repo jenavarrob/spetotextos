@@ -32,6 +32,12 @@ class FakeServices:
 
     ollama = FakeOllama()
 
+    class FakeTesseract:
+        def check_connection(self):
+            return {"connected": True, "command": "PATH", "language": "eng", "version": "5.3.0", "error": None}
+
+    tesseract = FakeTesseract()
+
     def describe_image(self, contents, content_type):
         return FakeResponse(f"described {content_type}")
 
@@ -97,6 +103,14 @@ def test_ollama_health_requires_authentication_and_reports_status():
     response = client.get("/health/ollama", headers=auth())
     assert response.json()["connected"] is True
     assert response.json()["model_available"] is True
+
+
+def test_tesseract_health_requires_authentication_and_reports_status():
+    client, _ = make_client()
+    assert client.get("/health/tesseract").status_code == 401
+    response = client.get("/health/tesseract", headers=auth())
+    assert response.status_code == 200
+    assert set(response.json()) == {"connected", "command", "language", "version", "error"}
 
 
 def test_chat_is_authenticated_and_stateless():

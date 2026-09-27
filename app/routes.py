@@ -40,6 +40,11 @@ async def ollama_health(request: Request, _: str = Depends(authenticate)):
     return await run_in_threadpool(_service(request).ollama.check_connection)
 
 
+@router.get("/health/tesseract")
+async def tesseract_health(request: Request, _: str = Depends(authenticate)):
+    return await run_in_threadpool(_service(request).tesseract.check_connection)
+
+
 @router.get("/")
 def read_root(_: str = Depends(authenticate)):
     return FileResponse("static/index.html")
