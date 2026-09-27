@@ -7,7 +7,7 @@ from test_playwright import chabela_base_url
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-IMAGE_PATH = PROJECT_ROOT / "Business-card.jpg"
+IMAGE_PATH = PROJECT_ROOT / "tests" / "fixtures" / "images" / "Business-card.jpg"
 
 
 @pytest.mark.playwright
